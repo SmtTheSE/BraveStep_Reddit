@@ -4,3 +4,9 @@ __pycache__/
 logs/
 *.sqlite
 *.db
+
+# Maturity secrets / local
+maturity/.env
+maturity/.venv/
+maturity/**/__pycache__/
+data/

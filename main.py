@@ -588,6 +588,43 @@ def run_full_history(target, limit, is_user=False, download_media_flag=True,
                             
                             if batch_comments:
                                 save_comments_csv(batch_comments, dirs["comments"])
+
+                            # Also write SQLite so Maturity (:8100) + API (:8000) share one corpus
+                            try:
+                                from export.database import save_posts_batch, save_comments_batch, get_connection
+                                sub_name = target if not is_user else (posts[0].get("subreddit") or target)
+                                db_posts = save_posts_batch(posts, sub_name)
+                                db_comments = 0
+                                if batch_comments:
+                                    by_permalink = {}
+                                    for c in batch_comments:
+                                        by_permalink.setdefault(c.get("post_permalink") or "", []).append(c)
+                                    for post in posts:
+                                        matched = by_permalink.get(post.get("permalink") or "", [])
+                                        if matched:
+                                            db_comments += save_comments_batch(matched, post.get("id"))
+                                # refresh subreddit rollup for API /subreddits
+                                conn = get_connection()
+                                try:
+                                    conn.execute(
+                                        """
+                                        INSERT INTO subreddits(name, last_scraped, total_posts, total_comments)
+                                        VALUES (?, datetime('now'), ?, ?)
+                                        ON CONFLICT(name) DO UPDATE SET
+                                          last_scraped=excluded.last_scraped,
+                                          total_posts=(SELECT COUNT(*) FROM posts WHERE lower(subreddit)=lower(excluded.name)),
+                                          total_comments=(SELECT COUNT(*) FROM comments c
+                                            JOIN posts p ON p.id=c.post_id
+                                            WHERE lower(p.subreddit)=lower(excluded.name))
+                                        """,
+                                        (sub_name, len(posts), db_comments),
+                                    )
+                                    conn.commit()
+                                finally:
+                                    conn.close()
+                                print(f"   🗄️  SQLite: +{db_posts} posts, +{db_comments} comments")
+                            except Exception as db_err:
+                                print(f"   ⚠️ SQLite save failed (CSV still ok): {db_err}")
                         else:
                             # In dry run, just count
                             total_posts += len(posts)
