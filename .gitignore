@@ -1,6 +1,4 @@
-data/
+.venv/
 __pycache__/
 .env
-logs/
-*.sqlite
-*.db
+data/
